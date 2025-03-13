@@ -1,0 +1,94 @@
+
+name: Promote Python Package
+
+on:
+  repository_dispatch:
+    types: [package_synchronized]
+
+env:
+  CLOUDSMITH_NAMESPACE: ${{ vars.CLOUDSMITH_NAMESPACE }}
+  CLOUDSMITH_STAGING_REPO: 'interview-piyush-jain'
+  CLOUDSMITH_PRODUCTION_REPO: 'production'
+  CLOUDSMITH_SERVICE_SLUG: ${{ vars.CLOUDSMITH_SERVICE_SLUG }}
+  PACKAGE_NAME: 'example-package'
+
+permissions:
+  id-token: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install required tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq curl
+
+      - name: Install Cloudsmith CLI
+        run: |
+          pip install --upgrade cloudsmith-cli
+
+      - name: Authenticate with Cloudsmith (OIDC)
+        id: auth
+        run: |
+          oidc_token=$(curl -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" | jq -r '.value')
+          cloudsmith_token=$(curl -X POST -H "Content-Type: application/json" \
+            -d "{\"oidc_token\":\"$oidc_token\", \"service_slug\":\"${{ env.CLOUDSMITH_SERVICE_SLUG }}\"}" \
+            https://api.cloudsmith.io/openid/${{ env.CLOUDSMITH_NAMESPACE }}/ | jq -r '.token')
+          echo "CLOUDSMITH_API_KEY=$cloudsmith_token" >> $GITHUB_ENV
+
+
+      - name: Check Cloudsmith Authentication
+        run: |
+          cloudsmith whoami
+        env:
+          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
+
+      - name: Fetch Latest Package Identifier and Add Tag
+        run: |
+          echo "Fetching latest package identifier..."
+          
+          # Fetch the latest package identifier dynamically
+          PACKAGE_SLUG=$(cloudsmith list packages interview-piyush-jain/interview-piyush-jain --output-format=json | jq -r '.data[] | select(.name=="example-package") | .slug' | head -n 1)
+      
+          echo "Latest Package Slug: $PACKAGE_SLUG"
+      
+          if [ -z "$PACKAGE_SLUG" ]; then
+            echo "Exiting..."
+            exit 1
+          fi
+      
+          # Add the tag dynamically to the latest package identifier
+          cloudsmith tags add interview-piyush-jain/interview-piyush-jain/$PACKAGE_SLUG ready-for-production
+        env:
+          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
+
+
+      - name: Promote Tagged Packages to Production
+        run: |
+          PACKAGE_QUERY="tag:ready-for-production"
+          echo "Searching for packages with query: $PACKAGE_QUERY"
+          PACKAGE_DATA=$(cloudsmith list package \
+            ${{ env.CLOUDSMITH_NAMESPACE }}/${{ env.CLOUDSMITH_STAGING_REPO }} \
+            -q "$PACKAGE_QUERY" -F json)
+          echo "$PACKAGE_DATA" | jq -r '.data[].identifier_perm' | while read -r IDENTIFIER; do
+            if [ -n "$IDENTIFIER" ] && [ "$IDENTIFIER" != "null" ]; then
+              echo "Promoting package: $IDENTIFIER"
+              cloudsmith whoami
+              cloudsmith mv --yes interview-piyush-jain/interview-piyush-jain/"$IDENTIFIER" production
+              
+              if [ $? -eq 0 ]; then
+                echo "Successfully promoted package: $IDENTIFIER"
+              else
+                echo "Failed to promote package: $IDENTIFIER"
+                exit 1
+              fi
+            else
+              echo "No valid package identifiers found for promotion."
+            fi
+          done
+        env:
+          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}  
+        shell: bash
