@@ -6,7 +6,7 @@ on:
     types:
       - completed
     branches:
-      - master
+      - main
 
 env:
   CLOUDSMITH_NAMESPACE: ${{ vars.CLOUDSMITH_NAMESPACE }}
