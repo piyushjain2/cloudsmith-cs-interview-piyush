@@ -89,4 +89,5 @@ jobs:
               echo "No package found to upload"
               exit 1
             fi
+            echo ${{ env.CLOUDSMITH_NAMESPACE }}/${{ env.CLOUDSMITH_REPOSITORY }}
             cloudsmith push python ${{ env.CLOUDSMITH_NAMESPACE }}/${{ env.CLOUDSMITH_REPOSITORY }} "${{ env.PACKAGE_PATH }}" --republish --api-key $CLOUDSMITH_API_KEY
