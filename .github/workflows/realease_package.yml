@@ -82,9 +82,11 @@ jobs:
           echo "Found package: $PACKAGE_FILE"
           echo "PACKAGE_PATH=$PACKAGE_FILE" >> $GITHUB_ENV
       - name: Push package to Cloudsmith
+        env:
+            CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
         run: |
             if ! ls dist/*.tar.gz 1> /dev/null 2>&1; then
               echo "No package found to upload"
               exit 1
             fi
-            cloudsmith push python ${{ env.CLOUDSMITH_NAMESPACE }}/${{ env.CLOUDSMITH_REPOSITORY }} dist/*.tar.gz --republish --api-key $CLOUDSMITH_SERVICE_SLUG
+            cloudsmith push python ${{ env.CLOUDSMITH_NAMESPACE }}/${{ env.CLOUDSMITH_REPOSITORY }} dist/*.tar.gz --republish --api-key $CLOUDSMITH_API_KEY
