@@ -7,91 +7,55 @@ on:
       - completed
     branches:
       - main
+  workflow_dispatch: 
 
 env:
   CLOUDSMITH_NAMESPACE: ${{ vars.CLOUDSMITH_NAMESPACE }}
-  CLOUDSMITH_REPOSITORY: ${{ vars.CLOUDSMITH_REPOSITORY}}
+  CLOUDSMITH_REPOSITORY: "staging"
   CLOUDSMITH_SERVICE_SLUG: ${{ vars.CLOUDSMITH_SERVICE_SLUG }}
 
 permissions:
   contents: read
   actions: read
   id-token: write
-  packages: write
 
 jobs:
   publish:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}  # Run if build is successful or manually triggered
 
     steps:
       - name: Download artifact
-        uses: actions/github-script@v7
+        uses: actions/download-artifact@v4
         with:
-          script: |
-            const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              run_id: context.payload.workflow_run.id,
-            });
-            const matchArtifact = artifacts.data.artifacts.find((artifact) => {
-              return artifact.name === 'python-package'
-            });
-            if (!matchArtifact) {
-              throw new Error('No artifact found');
-            }
-            const download = await github.rest.actions.downloadArtifact({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              artifact_id: matchArtifact.id,
-              archive_format: 'zip'
-            });
-            const fs = require('fs');
-            fs.writeFileSync(`${process.env.GITHUB_WORKSPACE}/artifact.zip`, Buffer.from(download.data));
-
-      - name: Unzip artifact
-        run: |
-          mkdir -p dist
-          unzip artifact.zip -d dist
+          name: python-package
+          path: dist
+          repository: ${{ github.repository }}
+          github-token: ${{ github.token }}
+          run-id: 13972138944
 
       - name: List directory contents
         run: ls -la dist/
         shell: bash
 
-      - name: Install Cloudsmith CLI
+      - name: Debug - Print Cloudsmith Variables
         run: |
-          pip install --upgrade cloudsmith-cli
+          echo "CLOUDSMITH_NAMESPACE: ${{ env.CLOUDSMITH_NAMESPACE }}"
+          echo "CLOUDSMITH_REPOSITORY: ${{ env.CLOUDSMITH_REPOSITORY }}"
+          echo "CLOUDSMITH_SERVICE_SLUG: ${{ env.CLOUDSMITH_SERVICE_SLUG }}"
 
-      - name: Authenticate with Cloudsmith (OIDC)
-        id: auth
+      - name: Install cloudsmith-cli with pip
         run: |
-          # Request the GitHub OIDC token
-          oidc_token=$(curl -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" | jq -r '.value')
+          python -m pip install --upgrade pip
+          pip install cloudsmith-cli
+        shell: bash
 
-          # Exchange the OIDC token for a Cloudsmith token
-          cloudsmith_token=$(curl -X POST -H "Content-Type: application/json" \
-            -d "{\"oidc_token\":\"$oidc_token\", \"service_slug\":\"${{ env.CLOUDSMITH_SERVICE_SLUG }}\"}" \
-            https://api.cloudsmith.io/openid/${{ env.CLOUDSMITH_NAMESPACE }}/ | jq -r '.token')
-
-          # Store the Cloudsmith token as an environment variable
-          echo "CLOUDSMITH_API_KEY=$cloudsmith_token" >> $GITHUB_ENV
-
-      - name: Find the Built Package
-        id: find_package
+      - name: Push package to Cloudsmith
+        env:
+          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
         run: |
-          PACKAGE_FILE=$(ls dist/*.tar.gz dist/*.whl 2>/dev/null | head -n 1)
-          if [ -z "$PACKAGE_FILE" ]; then
-            echo "No file found in dist/"
+          if ! ls dist/*.tar.gz 1> /dev/null 2>&1; then
+            echo "No package found to upload"
             exit 1
           fi
-          echo "Found package: $PACKAGE_FILE"
-          echo "PACKAGE_PATH=$PACKAGE_FILE" >> $GITHUB_ENV
-
-      - name: Push Package to Cloudsmith
-        run: |
-          cloudsmith push python \
-          interview-piyush-jain/interview-piyush-jain \
-          dist/example_package-4.2.2-py3-none-any.whl
-        env:
-          CLOUDSMITH_API_KEY: ${{ vars.CLOUDSMITH_API_KEY }}
+          cloudsmith push python ${{ env.CLOUDSMITH_NAMESPACE }}/${{ env.CLOUDSMITH_REPOSITORY }} dist/*.tar.gz --republish --api-key $CLOUDSMITH_API_KEY
