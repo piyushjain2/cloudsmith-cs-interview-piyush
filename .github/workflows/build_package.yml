@@ -3,10 +3,10 @@ name: Build Python Package
 on:
   push:
     branches:
-      - master # Issue 5
+      - main # Issue 5
   pull_request:
     branches:
-      - master # Issue 5
+      - main # Issue 5
 
 permissions:
   contents: read
