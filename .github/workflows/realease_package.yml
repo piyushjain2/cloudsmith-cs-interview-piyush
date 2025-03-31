@@ -56,7 +56,6 @@ jobs:
       - name: List directory contents
         run: ls -la dist/
         shell: bash
-
       - name: Install Cloudsmith CLI
         run: |
           pip install --upgrade cloudsmith-cli
@@ -82,10 +81,10 @@ jobs:
           fi
           echo "Found package: $PACKAGE_FILE"
           echo "PACKAGE_PATH=$PACKAGE_FILE" >> $GITHUB_ENV
-      - name: Push Package to Cloudsmith
+      - name: Push package to Cloudsmith
         run: |
-          cloudsmith push python \
-          interview-piyush-jain/interview-piyush-jain \
-          dist/example_package-*-py3-none-any.whl
-        env:
-          CLOUDSMITH_API_KEY: ${{ vars.CLOUDSMITH_API_KEY }}
+            if ! ls dist/*.tar.gz 1> /dev/null 2>&1; then
+              echo "No package found to upload"
+              exit 1
+            fi
+            cloudsmith push python ${{ env.CLOUDSMITH_NAMESPACE }}/${{ env.CLOUDSMITH_REPOSITORY }} dist/*.tar.gz --republish --api-key $CLOUDSMITH_SERVICE_SLUG
